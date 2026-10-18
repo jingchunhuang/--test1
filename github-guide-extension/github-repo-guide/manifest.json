@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub 建網站教學",
+  "version": "5.0",
+  "description": "一步一步教你用 GitHub Pages 或 Render 發布網站，並連結 GA、GSC、GTM、Sitemap；可以問問題",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:11434/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://github.com/*",
+        "https://dashboard.render.com/*",
+        "https://analytics.google.com/*",
+        "https://search.google.com/*",
+        "https://tagmanager.google.com/*",
+        "https://www.xml-sitemaps.com/*",
+        "https://*.github.io/*",
+        "https://*.onrender.com/*"
+      ],
+      "js": ["common.js", "courses.js", "faq.js", "highlight.js", "checks.js", "chat.js", "panel.js"],
+      "css": ["guide.css"]
+    }
+  ]
+}
