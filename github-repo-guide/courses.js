@@ -537,24 +537,78 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     },
   ];
 
+  // GA 建立帳戶的畫面上方有 5 個階段：建立帳戶 → 建立資源 → 商家詳細資料 → 業務目標 → 資料收集
+  // 這裡的步驟跟那 5 個階段一一對應；按了框起來的「下一步」就自動跳到下一個階段
+  const GA_CREATE_PAGE = () => onGA() && /\/admin\/(account|property)\/create/.test(location.hash);
+  const gaNext = (tip = '填好後按這裡') => both('下一步', 'Next', tip).map((t) => ({ ...t, done: true }));
   const GA_SETUP = [
-    gaStep('建立 GA 帳戶', () =>
-      `打開 ${link(GA_URL, 'Google Analytics')}，左下角點 <b>管理</b>（齒輪）→ <b>建立</b> → <b>帳戶</b>。<br>` +
-      '輸入帳戶名稱（公司或團隊名稱），按 <b>繼續</b>。'),
-    gaStep('建立資源', () =>
-      '1. 資源名稱填你的<b>網站名稱</b>，按 <b>下一步</b><br>2. 填商家詳細資料，按 <b>下一步</b>'),
-    gaStep('選擇商家目標', () => '勾選商家目標，按 <b>建立</b>，再<b>接受服務條款</b>。'),
     gaStep(
-      '建立網站資料串流',
+      '打開「建立帳戶」',
       () =>
-        '1. 收集資料的平台選 <b>網站</b><br>' +
+        `打開 ${link(GA_URL, 'Google Analytics')}，左下角點 <b>管理</b>（齒輪）→ 左上角 <b>建立</b> → <b>帳戶</b>。<br>` +
+        '<small>畫面上方出現「建立帳戶 → 建立資源 → … → 資料收集」5 個階段，就是對的頁面。</small>',
+      [],
+      { doneWhen: GA_CREATE_PAGE }
+    ),
+    gaStep(
+      '① 建立帳戶',
+      () => '<b>帳戶名稱</b>填公司或團隊名稱（例如課程名稱），下面的資料共用設定照預設就好，按 <b>下一步</b>。',
+      [
+        { selector: 'input[aria-label*="帳戶名稱"], input[aria-label*="Account name"]', tip: '填帳戶名稱' },
+        ...gaNext(),
+      ]
+    ),
+    gaStep(
+      '② 建立資源',
+      () =>
+        '1. <b>屬性名稱</b>（資源名稱）填你的<b>網站名稱</b>，要 <b>4～100 個字元</b>，太短會顯示紅字<br>' +
+        '2. <b>報表時區</b>選台灣，<b>貨幣</b>選新台幣（通常已經選好）<br>' +
+        '3. 按 <b>下一步</b>',
+      [
+        {
+          selector:
+            'input[aria-label*="屬性名稱"], input[aria-label*="資源名稱"], input[aria-label*="Property name"]',
+          tip: '填網站名稱（至少 4 個字）',
+        },
+        ...gaNext(),
+      ]
+    ),
+    gaStep(
+      '③ 商家詳細資料',
+      () => '選<b>產業類別</b>和<b>商家規模</b>（照實際情況選，練習用的話隨便選一個也可以），按 <b>下一步</b>。',
+      gaNext('選好後按這裡')
+    ),
+    gaStep(
+      '④ 業務目標',
+      () =>
+        '1. 勾選你想達成的目標（練習用可以選「取得基準報表」）<br>' +
+        '2. 按 <b>建立</b><br>' +
+        '3. 跳出服務條款：國家選<b>台灣</b>，勾選同意，按 <b>我接受</b>',
+      [
+        { ...both('建立', 'Create', '② 按建立')[0], exact: true },
+        { ...both('建立', 'Create', '② 按建立')[1], exact: true },
+        ...both('我接受', 'I Accept', '③ 同意條款').map((t) => ({ ...t, done: true })),
+      ]
+    ),
+    gaStep(
+      '⑤ 資料收集：建立網站資料串流',
+      () =>
+        '1. 平台選 <b>網站</b><br>' +
         `2. 網址貼上你的網站網址，<b>前面的 https:// 要刪掉</b>（欄位前面已經有 https:// 選單）：<br>${siteLine(false)}<br>` +
         '<small>要填實際的網站網址，不要貼後台網址（github.com/… 或 dashboard.render.com）</small><br>' +
-        '3. 輸入串流名稱，按右上角 <b>建立</b>',
-      [],
+        '3. 輸入串流名稱（例如網站名稱），按 <b>建立並繼續</b>（或 <b>建立串流</b>）',
+      [
+        { text: '網站', tip: '① 選網站', exact: true },
+        { text: 'Web', tip: '① 選網站', exact: true },
+        ...both('建立並繼續', 'Create & continue', '③ 按這裡').map((t) => ({ ...t, done: true })),
+        ...both('建立串流', 'Create stream', '③ 按這裡').map((t) => ({ ...t, done: true })),
+      ],
       { checkGaStream: true }
     ),
-    gaStep('完成設定', () => '關閉跳出的視窗，按 <b>下一步</b>，回到首頁。'),
+    gaStep('完成設定 🎉', () =>
+      '會跳出「安裝操作說明」視窗，先關掉就好（下一套教學「在網站安裝 GA 追蹤碼」會再用到）。<br>' +
+      '畫面上的<b>評估 ID</b>（G- 開頭）擴充功能會自動記下來。' +
+      (state.gaId ? `<br>已記下：${code(state.gaId)}` : '')),
   ];
 
   const GA_INSTALL = [
@@ -824,7 +878,46 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   const COURSE_GROUPS = [
     { id: undefined, label: '架網站：GitHub Pages / Render' },
     { id: 'seo', label: 'SEO：GA / GSC / GTM / Sitemap' },
+    { id: 'custom', label: '我的教學（用截圖產生）' },
   ];
+
+  // ---------- 用截圖做的教學（maker.html 存在 chrome.storage 的 customCourses） ----------
+  // 存的是純資料：{ id, title, steps: [{ title, body, buttons: ['按鈕文字'], url }] }，在這裡換成一般步驟的格式
+  const attr = (s) => s.replace(/["\\]/g, '\\$&');
+  const hostOf = (url) => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return '';
+    }
+  };
+
+  function customStep(s) {
+    const buttons = (s.buttons || []).filter(Boolean);
+    const host = hostOf(s.url);
+    return {
+      title: s.title || '（沒有標題）',
+      body: () => esc(s.body || '').replace(/\n/g, '<br>'),
+      ...(host ? { pageName: host, page: () => location.host === host, goto: () => s.url } : {}),
+      // 按鈕用文字找；輸入框沒有文字，再用 placeholder / aria-label 找。最後一個按鈕點了就算完成
+      targets: buttons.flatMap((text, i) => {
+        const tip = buttons.length > 1 ? `${i + 1}. 點「${text}」` : `點「${text}」`;
+        const done = i === buttons.length - 1;
+        return [
+          { text, tip, done },
+          { selector: `[placeholder="${attr(text)}"], input[aria-label="${attr(text)}"]`, tip: `在這裡填寫`, done },
+        ];
+      }),
+    };
+  }
+
+  Guide.setCustomCourses = (list = []) => {
+    for (let i = COURSES.length - 1; i >= 0; i--) if (COURSES[i].group === 'custom') COURSES.splice(i, 1);
+    for (const c of list) {
+      if (!c?.steps?.length) continue;
+      COURSES.push({ id: `custom:${c.id}`, group: 'custom', title: c.title || '我的教學', steps: c.steps.map(customStep) });
+    }
+  };
 
   Guide.COURSES = COURSES;
   Guide.COURSE_GROUPS = COURSE_GROUPS;

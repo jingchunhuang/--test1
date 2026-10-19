@@ -1,7 +1,7 @@
 // 教學面板：選教學、上一步／下一步、提醒區、網站檢查區；畫面一有變化就重新標示和檢查。
 // 這個檔案最後載入，負責把其他檔案的功能接起來。
 (() => {
-  const { el, state, setState, course, steps, currentStep, currentRepo, onMySite, COURSES, COURSE_GROUPS } = Guide;
+  const { el, state, setState, course, steps, currentStep, currentRepo, onMySite, extensionAlive, COURSES, COURSE_GROUPS } = Guide;
 
   // ---------- 建立面板 ----------
   const panel = el('div', 'gh-guide-panel');
@@ -12,6 +12,7 @@
     </div>
     <select class="gh-guide-course" title="選擇教學"></select>
     <div class="gh-guide-warns"></div>
+    <div class="gh-guide-ai" hidden></div>
     <div class="gh-guide-site" hidden>
       <div class="gh-guide-site-head">
         <b>🔍 網站檢查（這一頁）</b>
@@ -27,7 +28,9 @@
       <button class="gh-guide-prev">上一步</button>
       <button class="gh-guide-next">下一步</button>
     </div>
-    <label class="gh-guide-auto"><input type="checkbox" class="gh-guide-auto-box"> 做完自動跳下一步</label>`;
+    <label class="gh-guide-auto"><input type="checkbox" class="gh-guide-auto-box"> 做完自動跳下一步</label>
+    <label class="gh-guide-auto"><input type="checkbox" class="gh-guide-ai-box"> 找不到按鈕時請 AI 看畫面</label>
+    <button class="gh-guide-maker" title="上傳操作截圖，AI 自動寫出步驟">📷 用截圖做新教學</button>`;
   Guide.mountChat(panel); // 「問問題」在 chat.js
 
   const launcher = el('button', 'gh-guide-launcher', '📘 建網站教學');
@@ -39,17 +42,23 @@
   const siteBox = $('.gh-guide-site');
   const siteRows = $('.gh-guide-site-rows');
 
-  // 下拉選單：教學分組
-  for (const g of COURSE_GROUPS) {
-    const optgroup = el('optgroup');
-    optgroup.label = g.label;
-    for (const c of COURSES.filter((c) => c.group === g.id)) {
-      const option = el('option', null, c.title);
-      option.value = c.id;
-      optgroup.append(option);
+  // 下拉選單：教學分組（用截圖做的教學會變動，所以要能重建）
+  function buildCourseSelect() {
+    courseSelect.replaceChildren();
+    for (const g of COURSE_GROUPS) {
+      const list = COURSES.filter((c) => c.group === g.id);
+      if (!list.length) continue;
+      const optgroup = el('optgroup');
+      optgroup.label = g.label;
+      for (const c of list) {
+        const option = el('option', null, c.title);
+        option.value = c.id;
+        optgroup.append(option);
+      }
+      courseSelect.append(optgroup);
     }
-    courseSelect.append(optgroup);
   }
+  $('.gh-guide-maker').onclick = () => Guide.sendToBackground({ type: 'openMaker' });
 
   // ---------- 按鈕 ----------
   courseSelect.onchange = () => setState({ course: courseSelect.value, step: 0 });
@@ -97,6 +106,103 @@
       return true;
     }
     return false;
+  }
+
+  // ---------- 找不到按鈕時請 AI 看畫面（aifind.js、background.js） ----------
+  const aiBox = $('.gh-guide-ai-box');
+  aiBox.onchange = () => setState({ aiFind: aiBox.checked });
+  const aiStatusBox = $('.gh-guide-ai');
+  const aiAsked = new Set(); // 這次打開頁面已經問過的「步驟＋網址」，不重複問
+  const aiNodeTargets = {}; // 沒辦法存起來的 AI 結果（只在這一頁有效）
+  let aiStatus = null; // { key, text, buttons }
+
+  const aiKey = () => `${stepKey()}@${location.host}${location.pathname}`;
+  const aiTargetsFor = () => {
+    const saved = state.aiFound?.[aiKey()];
+    if (saved) return [saved.target];
+    return aiNodeTargets[aiKey()] ? [aiNodeTargets[aiKey()]] : [];
+  };
+
+  function showAiStatus(text, buttons = []) {
+    aiStatus = { key: aiKey(), text, buttons };
+    renderAiStatus();
+  }
+
+  function renderAiStatus() {
+    const show = !!aiStatus && aiStatus.key === aiKey() && state.open;
+    aiStatusBox.hidden = !show;
+    if (!show) return;
+    aiStatusBox.replaceChildren(
+      el('div', null, aiStatus.text),
+      ...aiStatus.buttons.map(([label, onClick]) => {
+        const btn = el('button', null, label);
+        btn.onclick = onClick;
+        return btn;
+      })
+    );
+  }
+
+  // 為什麼沒有截圖、要怎麼開
+  const WHY = {
+    'no-permission': ['（這次沒有截圖：要讓 AI 看畫面，要先開啟截圖權限）', [['開啟截圖權限', () => Guide.sendToBackground({ type: 'openOptions' })]]],
+    'no-vision-model': ['（這次沒有截圖：還沒安裝看圖模型，在 cmd 執行 ollama pull qwen2.5vl:3b）', []],
+  };
+  const whyNote = (why) => WHY[why]?.[0] || '';
+  const whyButtons = (why) => WHY[why]?.[1] || [];
+
+  function forgetAi(key) {
+    delete aiNodeTargets[key];
+    const rest = { ...state.aiFound };
+    delete rest[key];
+    setState({ aiFound: rest });
+    showAiStatus('已經拿掉 AI 推測的框，照上面的文字說明做就好。');
+  }
+
+  async function maybeAskAI(s) {
+    const key = aiKey();
+    if (!state.aiFind || aiAsked.has(key) || !extensionAlive()) return;
+    if (s.page && !s.page()) return; // 不在這一步的頁面，找不到是正常的
+    if (Date.now() - Guide.stepShownAt < 4000) return; // 先給網頁 4 秒載入
+    aiAsked.add(key);
+    showAiStatus('🤖 找不到這一步的按鈕，正在請 AI 看畫面找…（可能要等幾秒到幾十秒）');
+
+    const result = await Guide.aiFind(s);
+    if (aiKey() !== key) return; // 等的時候已經換步驟或換頁了
+    if (result.error) {
+      showAiStatus(`🤖 AI 沒辦法幫忙找：${result.error}`);
+      return;
+    }
+    if (result.none) {
+      showAiStatus(
+        `🤖 AI 也找不到這一步的按鈕${result.reason ? `（${result.reason}）` : ''}，請照上面的文字說明做。${whyNote(result.why)}`,
+        whyButtons(result.why)
+      );
+      return;
+    }
+    if (result.target.node) {
+      aiNodeTargets[key] = result.target;
+    } else {
+      const entry = {
+        target: result.target,
+        reason: result.reason,
+        mode: result.mode,
+        model: result.model,
+        course: course().title,
+        step: s.title,
+        original: s.targets.map((t) => t.text || t.selector),
+        url: location.href,
+        at: new Date().toISOString(),
+      };
+      setState({ aiFound: { ...state.aiFound, [key]: entry } });
+    }
+    showAiStatus(
+      '🤖 原本的按鈕找不到（網站可能改版了）。紫色虛線框是 AI 推測的位置' +
+        `（${result.mode === 'vision' ? '有看截圖' : '只看了按鈕清單'}），可能不準。` +
+        (result.reason ? `理由：${result.reason}` : '') +
+        whyNote(result.why),
+      [['不對，拿掉', () => forgetAi(key)], ...whyButtons(result.why)]
+    );
+    scan();
   }
 
   // 方式 2：點了標示 done: true 的按鈕
@@ -148,6 +254,8 @@
     $('.gh-guide-prev').disabled = state.step === 0;
     $('.gh-guide-next').textContent = last ? '結束教學' : '下一步';
     autoBox.checked = state.autoNext;
+    aiBox.checked = state.aiFind;
+    renderAiStatus();
     setTimeout(scan, 4100); // 4 秒後再檢查一次「找不到按鈕」
     scan();
   }
@@ -167,8 +275,11 @@
       return;
     }
     if (checkAutoNext(s)) return;
-    const found = Guide.highlight(state.open ? s.targets : []);
+    // 原本的線索找不到時，才用 AI 找到的（紫色虛線框）
+    const extra = Guide.countFound(s.targets) ? [] : aiTargetsFor();
+    const found = Guide.highlight(state.open ? [...s.targets, ...extra] : []);
     renderWarnings(state.open ? Guide.checkProblems(found) : []);
+    if (state.open && !found && s.targets.length) maybeAskAI(s);
   }
 
   let lastWarnKey = '';
@@ -221,13 +332,30 @@
   // ---------- 開始 ----------
   // 記住上次選的教學和教到第幾步（換頁、重新整理、換網站都會接著教）
   try {
-    chrome.storage.local.get('guideState', ({ guideState }) => {
+    chrome.storage.local.get(['guideState', 'customCourses'], ({ guideState, customCourses }) => {
+      Guide.setCustomCourses(customCourses);
+      buildCourseSelect();
       if (guideState) Object.assign(state, guideState);
       if (!COURSES.some((c) => c.id === state.course)) state.course = COURSES[0].id;
       render();
       renderSiteCheck();
     });
+    // 在「用截圖做教學」頁面存了新教學：已經打開的頁面也馬上更新下拉選單；按「開始這套教學」就切過去
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local') return;
+      if (changes.customCourses) {
+        Guide.setCustomCourses(changes.customCourses.newValue);
+        buildCourseSelect();
+      }
+      const next = changes.guideState?.newValue;
+      if (changes.customCourses || (next && next.course !== state.course)) {
+        if (next) Object.assign(state, { course: next.course, step: next.step, open: next.open });
+        if (!COURSES.some((c) => c.id === state.course)) state.course = COURSES[0].id;
+        render();
+      }
+    });
   } catch {
+    buildCourseSelect();
     render();
     renderSiteCheck();
   }

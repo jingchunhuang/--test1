@@ -165,6 +165,37 @@
   font-weight: 600;
 }
 
+/* ---------- AI 推測的按鈕（紫色虛線，跟正式的橘色分開） ---------- */
+.gh-guide-target.gh-guide-target-ai {
+  outline: 3px dashed #8250df !important;
+  animation: none;
+}
+
+.gh-guide-label.gh-guide-label-ai {
+  background: #8250df;
+}
+
+.gh-guide-ai {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fbefff;
+  border: 1px solid #c297ff;
+  color: #512a97;
+  font-size: 12px;
+}
+
+.gh-guide-ai button {
+  margin: 4px 6px 0 0;
+  border: 1px solid #c297ff;
+  border-radius: 6px;
+  background: #fff;
+  color: #512a97;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
 /* ---------- 自動跳下一步 ---------- */
 .gh-guide-toast {
   margin-top: 10px;
@@ -333,4 +364,22 @@
   padding: 10px 14px;
   border-radius: 999px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* ---------- 用截圖做新教學 ---------- */
+.gh-guide-panel .gh-guide-maker {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px dashed #ff6a00;
+  border-radius: 6px;
+  background: #fff7f0;
+  color: #bc4c00;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gh-guide-panel .gh-guide-maker:hover {
+  background: #ffefe0;
 }

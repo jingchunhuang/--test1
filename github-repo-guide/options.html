@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>GitHub 建網站教學：設定</title>
+  <style>
+    body { font-family: system-ui, "Microsoft JhengHei", sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; color: #1f2328; background: #fff; line-height: 1.6; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 17px; margin-top: 32px; border-bottom: 1px solid #d0d7de; padding-bottom: 4px; }
+    button { border: none; border-radius: 6px; padding: 6px 14px; background: #ff6a00; color: #fff; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #eaeef2; color: #1f2328; }
+    .status { margin-left: 8px; font-weight: 600; }
+    .ok { color: #1a7f37; }
+    .no { color: #cf222e; }
+    code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { border: 1px solid #d0d7de; padding: 4px 8px; text-align: left; vertical-align: top; word-break: break-word; }
+    th { background: #f6f8fa; }
+    textarea { width: 100%; height: 160px; font-family: monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>GitHub 建網站教學：設定</h1>
+
+  <h2>AI 看畫面找按鈕</h2>
+  <p>
+    網站改版、找不到教學要按的按鈕時，擴充功能會把畫面截圖，在每個可以點的地方標上編號，
+    交給<b>你電腦上的 Ollama 看圖模型</b>選出最可能的按鈕。截圖不會傳到網路上。
+  </p>
+  <p>
+    截圖權限：<span id="perm" class="status">檢查中…</span><br>
+    <button id="grant">允許截圖</button>
+    <button id="revoke" class="secondary">取消截圖權限</button>
+  </p>
+  <p>
+    Chrome 規定擴充功能要截圖，必須有「讀取所有網站」的權限，所以按下「允許截圖」時 Chrome 會跳出警告。
+    擴充功能只會在找不到按鈕時截<b>目前這個分頁</b>。
+  </p>
+  <p>
+    看圖模型：在 cmd 執行 <code>ollama pull qwen2.5vl:3b</code>（約 3 GB）。
+    沒有截圖權限或沒有看圖模型時，會改成只把按鈕清單交給文字模型判斷。
+  </p>
+
+  <h2>AI 找到的按鈕（改版紀錄）</h2>
+  <p>這些是原本的線索找不到、由 AI 推測出來的按鈕。確認正確後，可以把它們寫進 <code>courses.js</code> 變成正式的線索。</p>
+  <div id="found"></div>
+  <p>
+    <button id="copy">複製紀錄（JSON）</button>
+    <button id="clear" class="secondary">清除紀錄</button>
+  </p>
+  <textarea id="json" readonly hidden></textarea>
+
+  <script src="options.js"></script>
+</body>
+</html>

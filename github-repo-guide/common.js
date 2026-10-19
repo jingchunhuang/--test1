@@ -63,10 +63,12 @@ var Guide = {};
   // course / step：選的教學和第幾步　repo：建好的 repo　site：你的網站網址
   // gaId / gtmId：在 GA、GTM 頁面上自動記下的 ID
   // autoNext：做完自動跳下一步（面板上的開關）
+  // aiFind：找不到按鈕時請 AI 看畫面　aiFound：AI 找到的按鈕（同一頁不用再問，也是「改版紀錄」）
   // armed：哪一步已經看過「還沒完成」，之後變成完成才會自動跳（避免一進到某步就被跳過）
   // 注意：state 只能用 setState 改，不要整個換掉，其他檔案拿到的都是同一個物件
   const state = {
     course: 'pages-upload', step: 0, open: true, repo: '', site: '', gaId: '', gtmId: '', autoNext: true, armed: '',
+    aiFind: true, aiFound: {},
   };
   Guide.stepShownAt = Date.now(); // 這一步開始顯示的時間（判斷「找不到按鈕」用）
 

@@ -7,20 +7,23 @@
   const CLICKABLE =
     'button, a, summary, label, [role="button"], [role="link"], [role="tab"], [role="treeitem"], [role="menuitem"], [role="menuitemradio"], [role="option"]';
 
-  // 用按鈕上的文字找（不分大小寫，開頭符合就算）
-  function findByText(text) {
+  // 用按鈕上的文字找（不分大小寫，開頭符合就算；exact 的話要完全一樣，例如只找「建立」不找「建立資源」）
+  function findByText(text, exact) {
     const want = text.toLowerCase();
-    const matches = [...document.querySelectorAll(CLICKABLE)].filter(
-      (node) => !node.closest('.gh-guide-panel') && node.textContent.trim().toLowerCase().startsWith(want)
-    );
+    const matches = [...document.querySelectorAll(CLICKABLE)].filter((node) => {
+      if (node.closest('.gh-guide-panel')) return false;
+      const label = node.textContent.trim().replace(/\s+/g, ' ').toLowerCase();
+      return exact ? label === want : label.startsWith(want);
+    });
     // 外層和內層都符合時，只留最內層
     return matches.filter((node) => !matches.some((o) => o !== node && node.contains(o)));
   }
 
   function find(target) {
+    if (target.node) return target.node.isConnected ? [target.node] : []; // AI 選的元素（沒有其他線索時）
     if (target.path && !(onGitHub() && target.path.test(path()))) return [];
     if (target.selector) return [...document.querySelectorAll(target.selector)];
-    return findByText(target.text);
+    return findByText(target.text, target.exact);
   }
 
   // 標示這些按鈕，其他之前標示的拿掉；回傳找到幾個
@@ -31,18 +34,20 @@
         wanted.add(node);
         targetOf.set(node, target);
         node.classList.add('gh-guide-target');
+        node.classList.toggle('gh-guide-target-ai', !!target.ai);
         let label = labels.get(node);
         if (!label) {
           label = el('div', 'gh-guide-label');
           document.body.appendChild(label);
           labels.set(node, label);
         }
+        label.classList.toggle('gh-guide-label-ai', !!target.ai);
         if (label.textContent !== target.tip) label.textContent = target.tip;
       }
     }
     for (const [node, label] of labels) {
       if (!wanted.has(node) || !node.isConnected) {
-        node.classList.remove('gh-guide-target');
+        node.classList.remove('gh-guide-target', 'gh-guide-target-ai');
         label.remove();
         labels.delete(node);
       }
@@ -68,6 +73,7 @@
   window.addEventListener('resize', position);
 
   Guide.highlight = highlight;
+  Guide.countFound = (targets) => targets.reduce((n, t) => n + find(t).length, 0); // 只數，不畫
   // 點到的東西如果在某個被標示的按鈕裡，回傳那個按鈕的 target
   Guide.clickedTarget = (node) => {
     const hit = node?.closest?.('.gh-guide-target');
