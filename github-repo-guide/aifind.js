@@ -21,6 +21,22 @@
       }
     });
 
+  // aria-labelledby 指到的元素上的文字（例如 GitHub 的「+」按鈕，名字寫在旁邊的提示「Create new...」裡）
+  function labelledByText(node) {
+    const ids = (node.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+    return ids.map((id) => document.getElementById(id)?.textContent.trim() || '').filter(Boolean).join(' ').replace(/\s+/g, ' ');
+  }
+
+  // aria-labelledby 的 id 結尾常是 React 自動產生的（:r1:、«r1»、_R_6f9_），每次載入可能不一樣：
+  // 去掉這段，回傳 { value, prefix }，prefix 為 true 表示要用「開頭符合」找
+  function stableLabelledBy(node) {
+    const v = (node.getAttribute('aria-labelledby') || '').split(/\s+/)[0];
+    if (!v) return null;
+    const base = v.replace(/[-_]*(?::r\w+:|«r\w+»|_R_\w+_)$/, '');
+    if (!base) return null; // 整個都是自動產生的，沒辦法用
+    return { value: base, prefix: base !== v };
+  }
+
   function collectCandidates() {
     const found = [];
     for (const node of document.querySelectorAll(CANDIDATES)) {
@@ -40,6 +56,7 @@
         tag: node.tagName.toLowerCase(),
         text: (node.innerText || node.value || '').trim().replace(/\s+/g, ' ').slice(0, 60),
         aria: node.getAttribute('aria-label') || '',
+        lb: labelledByText(node).slice(0, 60),
         ph: node.getAttribute('placeholder') || '',
         title: node.getAttribute('title') || '',
         rect: [r.left, r.top, r.width, r.height].map(Math.round),
@@ -55,6 +72,8 @@
       const v = node.getAttribute(attr);
       if (v) return { ...base, selector: `${tag}[${attr}="${CSS.escape(v)}"]` };
     }
+    const lb = stableLabelledBy(node);
+    if (lb) return { ...base, selector: `${tag}[aria-labelledby${lb.prefix ? '^' : ''}="${CSS.escape(lb.value)}"]` };
     const text = node.textContent.trim().replace(/\s+/g, ' ');
     if (text) return { ...base, text: text.slice(0, 40) };
     if (node.id) return { ...base, selector: `#${CSS.escape(node.id)}` };
@@ -84,7 +103,9 @@
 
     const bodyText = el('div');
     bodyText.innerHTML = step.body();
-    const hints = step.targets.map((t) => (t.text ? `文字「${t.text}」` : `選擇器 ${t.selector}`) + `（提示：${t.tip}）`);
+    const hints = step.targets.map(
+      (t) => [t.selector && `選擇器 ${t.selector}`, t.text && `文字「${t.text}」`].filter(Boolean).join('、') + `（提示：${t.tip}）`
+    );
     const resp = await send({
       type: 'findTarget',
       step: { title: step.title, text: bodyText.textContent.trim() },

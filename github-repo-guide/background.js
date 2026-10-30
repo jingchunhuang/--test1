@@ -1,14 +1,18 @@
-// 背景程式：把問題交給電腦上的 Ollama（不會連到網路上的 AI）
+// 背景程式：把問題交給 AI。設定頁可以選：電腦上的 Ollama（不會連到網路），或 Google 的 Gemini API（要填 key）
 //   ask        「問問題」答不出來的問題
 //   capture    找不到按鈕時截圖，並在每個可以點的元素上畫框和編號
 //   findTarget 請 AI 看截圖（或元素清單）選出這一步要按的按鈕
 //   makeSteps  「用截圖做教學」頁面上傳的截圖，請 AI 寫成教學步驟
+//   testAi     設定頁的「測試連線」
 importScripts('faq.js');
 
 const OLLAMA = 'http://127.0.0.1:11434';
 const MODEL = 'qwen2.5:3b'; // 文字模型：想換就改這裡；沒裝這個模型時會自動用已安裝的第一個
 const VISION_MODEL = 'qwen2.5vl:3b'; // 看圖模型：建議安裝的版本（裝了別的看圖模型也會自動用）
 const VISION_NAME = /(vl\b|llava|vision|gemma3|minicpm-v|moondream)/i; // 從名稱判斷是不是看圖模型
+
+const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_MODEL = 'gemini-3.5-flash-lite'; // 設定頁沒填模型時用這個（免費方案可用、能看圖、回得快）
 
 const ORIGIN_HELP =
   'Ollama 拒絕了連線（403）。請在 cmd 執行：\nsetx OLLAMA_ORIGINS "chrome-extension://*"\n' +
@@ -46,6 +50,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     capture: () => capture(msg, sender),
     findTarget: () => findTarget(msg),
     makeSteps: () => makeSteps(msg),
+    testAi: () => testAi(),
     openOptions: () => chrome.runtime.openOptionsPage(),
     openMaker: () => chrome.tabs.create({ url: chrome.runtime.getURL('maker.html') }).then(() => ({})),
   };
@@ -89,24 +94,103 @@ async function pickVisionModel() {
   return names.includes(VISION_MODEL) ? VISION_MODEL : names.find((n) => VISION_NAME.test(n)) || null;
 }
 
-async function ask({ question, step, history = [] }) {
-  const model = await pickModel();
+// ---------- 選用哪個 AI（設定頁存在 chrome.storage.local 的 aiSettings） ----------
+async function settings() {
+  const { aiSettings } = await chrome.storage.local.get('aiSettings');
+  return { provider: 'ollama', geminiKey: '', geminiModel: '', ...aiSettings };
+}
+
+// 送一段對話給 AI，回傳 { text, model }
+// messages：[{ role: 'user' | 'assistant', content, images?: [base64 JPEG] }]　json：要 AI 只回 JSON
+async function chat(opts) {
+  const s = await settings();
+  return s.provider === 'gemini' ? geminiChat(s, opts) : ollamaChat(opts);
+}
+
+// 現在選的 AI 能不能看圖（Ollama 要裝看圖模型；Gemini 都可以）
+async function canSeeImages() {
+  if ((await settings()).provider === 'gemini') return true;
+  return !!(await pickVisionModel());
+}
+
+async function ollamaChat({ system, messages, json = false, temperature, numCtx = 8192, timeout = 180000 }) {
+  const model = messages.some((m) => m.images) ? await pickVisionModel() : await pickModel();
+  if (!model) throw new Error(`還沒安裝看圖模型。請在 cmd 執行：\nollama pull ${VISION_MODEL}`);
   const data = await ollamaFetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(180000),
+    signal: AbortSignal.timeout(timeout),
     body: JSON.stringify({
       model,
       stream: false,
-      options: { num_ctx: 16384 },
-      messages: [
-        { role: 'system', content: `${SYSTEM_PROMPT}\n\n使用者目前在教學的${step}。` },
-        ...history,
-        { role: 'user', content: question },
-      ],
+      ...(json ? { format: 'json' } : {}),
+      options: { num_ctx: numCtx, ...(temperature != null ? { temperature } : {}) },
+      messages: [{ role: 'system', content: system }, ...messages],
     }),
   });
-  return data.message?.content?.trim() || '（AI 沒有回答，請換個說法再問一次）';
+  return { text: data.message?.content?.trim() || '', model };
+}
+
+async function geminiChat({ geminiKey, geminiModel }, { system, messages, json = false, temperature, timeout = 180000 }) {
+  if (!geminiKey) throw new Error('還沒填 Gemini API key。請到擴充功能的設定頁填寫。');
+  const model = (geminiModel || GEMINI_MODEL).replace(/^models\//, '');
+  const contents = messages.map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }, ...(m.images || []).map((data) => ({ inlineData: { mimeType: 'image/jpeg', data } }))],
+  }));
+  while (contents[0]?.role === 'model') contents.shift(); // Gemini 的對話要從使用者開始
+
+  let res;
+  try {
+    res = await fetch(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey }, // key 放 header，不放網址
+      signal: AbortSignal.timeout(timeout),
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents,
+        generationConfig: {
+          ...(json ? { responseMimeType: 'application/json' } : {}),
+          ...(temperature != null ? { temperature } : {}),
+        },
+      }),
+    });
+  } catch (err) {
+    if (err.name === 'TimeoutError') throw new Error('AI 想太久了，請再試一次。');
+    throw new Error('連不到 Gemini，請確認網路有沒有通。');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(geminiError(res.status, data, model));
+  if (data.promptFeedback?.blockReason) throw new Error(`Gemini 拒絕回答（${data.promptFeedback.blockReason}）`);
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  return { text: parts.filter((p) => !p.thought).map((p) => p.text || '').join('').trim(), model };
+}
+
+function geminiError(status, data, model) {
+  const detail = String(data.error?.message || '').slice(0, 200);
+  if (status === 400 && /api key/i.test(detail)) return 'Gemini API key 不對，請到設定頁重新貼上。';
+  if (status === 403) return `Gemini 拒絕這組 key（403）：${detail}`;
+  if (status === 404) return `Gemini 找不到模型「${model}」，請到設定頁改模型名稱。`;
+  if (status === 429) return 'Gemini 免費額度用完了（每分鐘或每天有上限），請等一下再試。';
+  return `Gemini 回應錯誤（${status}）：${detail}`;
+}
+
+async function testAi() {
+  const { text, model } = await chat({
+    system: '你是連線測試。',
+    messages: [{ role: 'user', content: '請只回答「連線成功」四個字。' }],
+    timeout: 60000,
+  });
+  return { answer: text, model };
+}
+
+async function ask({ question, step, history = [] }) {
+  const { text } = await chat({
+    system: `${SYSTEM_PROMPT}\n\n使用者目前在教學的${step}。`,
+    messages: [...history, { role: 'user', content: question }],
+    numCtx: 16384,
+  });
+  return text || '（AI 沒有回答，請換個說法再問一次）';
 }
 
 // ---------- 找不到按鈕時：截圖並畫上編號 ----------
@@ -115,7 +199,7 @@ async function capture({ candidates, viewport }, sender) {
   if (!(await chrome.permissions.contains({ origins: ['<all_urls>'] }))) return { image: null, why: 'no-permission' };
   let vision;
   try {
-    vision = await pickVisionModel();
+    vision = await canSeeImages();
   } catch {
     return { image: null, why: 'no-ollama' };
   }
@@ -155,11 +239,11 @@ async function capture({ candidates, viewport }, sender) {
 
 // ---------- 請 AI 選出這一步要按的元素 ----------
 async function findTarget({ step, hints, candidates, image }) {
-  const model = image ? await pickVisionModel() : await pickModel();
   const describe = (c) =>
     `[${c.i}] ${c.tag}` +
     (c.text ? `「${c.text}」` : '（沒有文字）') +
     (c.aria ? ` aria-label=「${c.aria}」` : '') +
+    (c.lb ? ` 名稱（aria-labelledby）=「${c.lb}」` : '') +
     (c.ph ? ` placeholder=「${c.ph}」` : '') +
     (c.title ? ` title=「${c.title}」` : '');
   const text =
@@ -167,23 +251,15 @@ async function findTarget({ step, hints, candidates, image }) {
     `原本的按鈕線索（現在找不到）：\n${hints.map((h) => `- ${h}`).join('\n')}\n\n` +
     `畫面上的元素清單：\n${candidates.map(describe).join('\n')}`;
 
-  const data = await ollamaFetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(180000),
-    body: JSON.stringify({
-      model,
-      stream: false,
-      format: 'json',
-      options: { num_ctx: 8192, temperature: 0 },
-      messages: [
-        { role: 'system', content: FIND_PROMPT },
-        { role: 'user', content: text, ...(image ? { images: [image] } : {}) },
-      ],
-    }),
+  const reply = await chat({
+    system: FIND_PROMPT,
+    messages: [{ role: 'user', content: text, ...(image ? { images: [image] } : {}) }],
+    json: true,
+    temperature: 0,
   });
+  const { model } = reply;
 
-  const parsed = parseJson(data.message?.content);
+  const parsed = parseJson(reply.text);
   const index = Number(parsed.index);
   const valid = Number.isInteger(index) && candidates.some((c) => c.i === index);
   return { index: valid ? index : -1, reason: String(parsed.reason || '').slice(0, 200), model, mode: image ? 'vision' : 'text' };
@@ -203,31 +279,22 @@ function parseJson(raw = '') {
 // ---------- 用截圖做教學：一張截圖 → 一或多個步驟 ----------
 // goal：這套教學要做什麼　note：老師對這張截圖的補充　previous：前面已經寫好的步驟標題
 async function makeSteps({ image, goal, note, previous = [] }) {
-  const model = await pickVisionModel();
-  if (!model) throw new Error(`還沒安裝看圖模型。請在 cmd 執行：\nollama pull ${VISION_MODEL}`);
   const text =
     (goal ? `這套教學要做的事：${goal}\n` : '') +
     (previous.length ? `前面已經寫好的步驟：\n${previous.map((t, i) => `${i + 1}. ${t}`).join('\n')}\n` : '') +
     (note ? `老師對這張截圖的補充：${note}\n` : '') +
     '請寫出這張截圖的步驟。';
 
-  const data = await ollamaFetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(300000),
-    body: JSON.stringify({
-      model,
-      stream: false,
-      format: 'json',
-      options: { num_ctx: 8192, temperature: 0.2 },
-      messages: [
-        { role: 'system', content: MAKE_PROMPT },
-        { role: 'user', content: text, images: [image] },
-      ],
-    }),
+  const reply = await chat({
+    system: MAKE_PROMPT,
+    messages: [{ role: 'user', content: text, images: [image] }],
+    json: true,
+    temperature: 0.2,
+    timeout: 300000,
   });
+  const { model } = reply;
 
-  const parsed = parseJson(data.message?.content);
+  const parsed = parseJson(reply.text);
   const list = Array.isArray(parsed.steps) ? parsed.steps : parsed.title ? [parsed] : [];
   const str = (v, max) => String(v ?? '').trim().slice(0, max);
   const steps = list

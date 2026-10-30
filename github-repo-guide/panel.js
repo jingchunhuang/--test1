@@ -116,7 +116,9 @@
   const aiNodeTargets = {}; // 沒辦法存起來的 AI 結果（只在這一頁有效）
   let aiStatus = null; // { key, text, buttons }
 
-  const aiKey = () => `${stepKey()}@${location.host}${location.pathname}`;
+  // GA、GTM 每一頁的網址路徑都一樣，頁面的差別在 # 後面（#/home、#/…/variables），所以也要算進去；? 後面的參數不算
+  const route = () => (location.hash.startsWith('#/') ? location.hash.split('?')[0] : '');
+  const aiKey = () => `${stepKey()}@${location.host}${location.pathname}${route()}`;
   const aiTargetsFor = () => {
     const saved = state.aiFound?.[aiKey()];
     if (saved) return [saved.target];
@@ -275,11 +277,48 @@
       return;
     }
     if (checkAutoNext(s)) return;
+    const originalFound = Guide.countFound(s.targets);
+    // 換頁了，或原本的線索後來找到了（例如展開選單後才出現），AI 的訊息就不用再顯示
+    if (aiStatus && (aiStatus.key !== aiKey() || originalFound)) {
+      aiStatus = null;
+      renderAiStatus();
+    }
     // 原本的線索找不到時，才用 AI 找到的（紫色虛線框）
-    const extra = Guide.countFound(s.targets) ? [] : aiTargetsFor();
+    const extra = originalFound ? [] : aiTargetsFor();
     const found = Guide.highlight(state.open ? [...s.targets, ...extra] : []);
-    renderWarnings(state.open ? Guide.checkProblems(found) : []);
+    problems = state.open ? Guide.checkProblems(found) : [];
+    avoidCover();
+    renderWarnings([...problems, ...offscreenHint()]);
     if (state.open && !found && s.targets.length) maybeAskAI(s);
+  }
+
+  // 接下來要點的按鈕在畫面外：第一次自動捲過去（每一步、每個網址一次，之後不跟使用者搶），並在面板上提示
+  let problems = []; // checks.js 的警告，捲動時重畫提示要一起放
+  const scrolledFor = new Set();
+  function offscreenHint() {
+    if (!state.open) return [];
+    const off = Guide.nextOffscreen();
+    if (!off) return [];
+    if (off.scroll && !scrolledFor.has(aiKey())) {
+      scrolledFor.add(aiKey());
+      off.node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    return [{ text: `要點的按鈕在畫面${off.below ? '下方，請往下捲' : '上方，請往上捲'}，找橘色框。` }];
+  }
+
+  // 面板擋到接下來要點的按鈕時，移到左下角；放回右下角也不會擋到時，再移回去
+  function avoidCover() {
+    const nodes = state.open ? Guide.nextNodes() : [];
+    const r = panel.getBoundingClientRect();
+    const width = document.documentElement.clientWidth; // 不含捲軸，跟 position: fixed 的 right 一樣算法
+    const at = (left) => ({ left, right: left + r.width, top: r.top, bottom: r.bottom });
+    const covers = (box) =>
+      nodes.some((node) => {
+        const b = node.getBoundingClientRect();
+        return b.left < box.right && b.right > box.left && b.top < box.bottom && b.bottom > box.top;
+      });
+    const toLeft = covers(at(width - 20 - r.width)) && !covers(at(20));
+    if (panel.classList.contains('gh-guide-panel-left') !== toLeft) panel.classList.toggle('gh-guide-panel-left', toLeft);
   }
 
   let lastWarnKey = '';
@@ -321,6 +360,22 @@
     });
   };
   new MutationObserver(scheduleScan).observe(document.body, { childList: true, subtree: true });
+  // 捲動時只更新「按鈕在畫面外」的提示（不用整個重新檢查）
+  let hintPending = false;
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (hintPending) return;
+      hintPending = true;
+      requestAnimationFrame(() => {
+        hintPending = false;
+        avoidCover();
+        renderWarnings([...problems, ...offscreenHint()]);
+      });
+    },
+    true
+  );
+  window.addEventListener('resize', avoidCover);
   document.addEventListener(
     'input',
     (e) => {

@@ -17,15 +17,42 @@
     th, td { border: 1px solid #d0d7de; padding: 4px 8px; text-align: left; vertical-align: top; word-break: break-word; }
     th { background: #f6f8fa; }
     textarea { width: 100%; height: 160px; font-family: monospace; font-size: 12px; }
+    input[type="password"], input:not([type]) { padding: 4px 6px; border: 1px solid #d0d7de; border-radius: 6px; font: inherit; }
+    .note { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 8px 12px; font-size: 14px; }
   </style>
 </head>
 <body>
   <h1>GitHub 建網站教學：設定</h1>
 
+  <h2>用哪個 AI</h2>
+  <p>
+    <label><input type="radio" name="provider" value="ollama"> 電腦上的 Ollama（不會連到網路，要先安裝 Ollama 和模型）</label><br>
+    <label><input type="radio" name="provider" value="gemini"> Google Gemini API（填 key 就能用）</label>
+  </p>
+  <div id="gemini-box">
+    <p>
+      API key：<input id="gemini-key" type="password" size="44" autocomplete="off" placeholder="貼上 AI Studio 的 API key">
+      <button id="toggle-key" class="secondary" type="button">顯示</button><br>
+      到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 用 Google 帳號免費建立。key 只存在這台電腦的瀏覽器裡。
+    </p>
+    <p>
+      模型：<input id="gemini-model" size="24" placeholder="gemini-3.5-flash-lite">（空白就用 gemini-3.5-flash-lite）
+    </p>
+    <p class="note">
+      ⚠️ 用 Gemini 時，問題和<b>網頁截圖</b>會傳到 Google。免費方案的內容可能被 Google 拿去改進產品，
+      截圖裡可能有你的帳號名稱、repo 名稱，介意的話請用 Ollama。
+    </p>
+  </div>
+  <p>
+    <button id="save-ai">儲存</button>
+    <button id="test-ai" class="secondary">測試連線</button>
+    <span id="ai-status" class="status"></span>
+  </p>
+
   <h2>AI 看畫面找按鈕</h2>
   <p>
     網站改版、找不到教學要按的按鈕時，擴充功能會把畫面截圖，在每個可以點的地方標上編號，
-    交給<b>你電腦上的 Ollama 看圖模型</b>選出最可能的按鈕。截圖不會傳到網路上。
+    交給上面選的 AI 選出最可能的按鈕。用 Ollama 時截圖不會傳到網路上。
   </p>
   <p>
     截圖權限：<span id="perm" class="status">檢查中…</span><br>
@@ -37,8 +64,8 @@
     擴充功能只會在找不到按鈕時截<b>目前這個分頁</b>。
   </p>
   <p>
-    看圖模型：在 cmd 執行 <code>ollama pull qwen2.5vl:3b</code>（約 3 GB）。
-    沒有截圖權限或沒有看圖模型時，會改成只把按鈕清單交給文字模型判斷。
+    用 Ollama 時要裝看圖模型：在 cmd 執行 <code>ollama pull qwen2.5vl:3b</code>（約 3 GB）。
+    沒有截圖權限（或 Ollama 沒有看圖模型）時，會改成只把按鈕清單交給 AI 判斷。
   </p>
 
   <h2>AI 找到的按鈕（改版紀錄）</h2>

@@ -4,7 +4,9 @@
 //   title     標題
 //   body      說明文字（可以用 <b>粗體</b>、<br> 換行、<small>小字</small>）
 //   targets   要框起來的按鈕：{ text: '按鈕上的文字', tip: '提示' } 或 { selector: 'CSS 選擇器', tip: '提示' }
+//             selector 和 text 都寫 → 選擇器找到的元素裡，只框文字符合的
 //             加 path: 網址規則 → 只在符合的 GitHub 頁面上找
+//             順序照操作順序寫：最後一個找得到的框在畫面外時，會自動捲過去；加 noScroll: true 就只提示、不捲
 //   page / pageName / goto   這一步該在哪個頁面做、頁面名稱、「帶我過去」的網址
 //   where: 'vscode'          這一步在 VS Code 裡做（網頁上不會有標示）
 //   usesRepo                 會用到剛建立的 repo
@@ -55,7 +57,11 @@
       goto: () => GH,
       doneWhen: () => onGitHub() && NEW_REPO_PAGE.test(path()),
       targets: [
-        { selector: 'button[aria-label="Create something new"]', tip: '① 點「+」' },
+        // 新版 GitHub 用 aria-labelledby 指到「Create new...」提示；舊版是 aria-label
+        {
+          selector: 'button[aria-labelledby^="global-create-menu-tooltip"], button[aria-label="Create something new"]',
+          tip: '① 點「+」',
+        },
         { selector: 'a[href="/new"]', tip: '點這裡建立新 repo' },
       ],
     },
@@ -163,7 +169,8 @@
       goto: () => repoUrl('/upload/main'),
       usesRepo: true,
       doneWhen: () => onRepo() && !UPLOAD_PAGE.test(path()),
-      targets: [{ path: UPLOAD_PAGE, text: 'Commit changes', tip: '檔案拖好後按這裡' }],
+      // noScroll：Commit 在頁面最下面，但要先拖檔案，不要一進來就捲走（只提示）
+      targets: [{ path: UPLOAD_PAGE, text: 'Commit changes', tip: '檔案拖好後按這裡', noScroll: true }],
     },
 
     // 刪除檔案
@@ -506,12 +513,42 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     return `${code(shown)} ${copyBtn(shown, '複製網址')}`;
   };
 
+  // GA 管理頁的按鈕：navid、guidedhelpid 不會隨中英文介面改變
+  const gaAdmin = (tip = '① 點齒輪「管理」') => ({ selector: 'a[navid="admin-module"]', tip });
+  const gaAdminLink = (id, tip) => ({ selector: `a[data-guidedhelpid="${id}"]`, tip });
+  const gaAdminMenu = (id, tip) => ({ selector: `button[guidedhelpid="${id}"]`, tip }); // 管理頁左邊選單
+  const gaStreams = () => [
+    gaAdmin(),
+    gaAdminMenu('guided-help-admin-data-collection-and-modification-section', '② 展開資料收集和修改'),
+    gaAdminMenu('guided-help-admin-streams', '③ 點資料串流'),
+    gaAdminLink('admin-data-streams', '③ 點資料串流'),
+    ...both('資料串流', 'Data streams', '③ 點資料串流'),
+  ];
   const gaStep = (title, body, targets = [], extra = {}) => ({
     title, body, targets, pageName: 'Google Analytics', page: onGA, goto: () => GA_URL, ...extra,
   });
   const gscStep = (title, body, targets = [], extra = {}) => ({
     title, body, targets, pageName: 'Google Search Console', page: onGSC, goto: () => GSC_URL, ...extra,
   });
+  // GTM 左邊選單預設收合，「變數」「觸發條件」藏在「顯示更多」裡；展開後同一個按鈕會變成「顯示較少」，所以要比對文字，展開了就不框
+  const gtmMore = () => [
+    { selector: '.wd-advanced-features-toggle', text: '顯示更多', tip: '① 點顯示更多' },
+    { selector: '.wd-advanced-features-toggle', text: 'Show more', tip: '① 點顯示更多' },
+  ];
+  // GTM 變數頁和變數編輯頁（編輯頁是蓋在變數頁上面的一層，網址不會變）
+  const shown = (selector) => {
+    const node = document.querySelector(selector);
+    return !!node && node.getBoundingClientRect().width > 0;
+  };
+  const GTM_VARIABLE_NAME = 'div[name="variable.data.name"]';
+  const GTM_VALUE_INPUT = '.gtm-veditor input.wd-text-input';
+  const onGtmVariables = () => onGTM() && /\/variables$/.test(location.hash.split('?')[0]);
+  const gtmVariableEditorOpen = () => shown(GTM_VARIABLE_NAME);
+  // GTM 列表頁右上角的「新增」（「設定」按鈕也是 btn--create，所以要比對文字）
+  const gtmNew = (tip) => [
+    { selector: 'button.btn--create', text: '新增', exact: true, tip },
+    { selector: 'button.btn--create', text: 'New', exact: true, tip },
+  ];
   const gtmStep = (title, body, targets = [], extra = {}) => ({
     title, body, targets, pageName: 'Google 代碼管理工具（GTM）', page: onGTM, goto: () => GTM_URL, ...extra,
   });
@@ -546,8 +583,16 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
       '打開「建立帳戶」',
       () =>
         `打開 ${link(GA_URL, 'Google Analytics')}，左下角點 <b>管理</b>（齒輪）→ 左上角 <b>建立</b> → <b>帳戶</b>。<br>` +
-        '<small>畫面上方出現「建立帳戶 → 建立資源 → … → 資料收集」5 個階段，就是對的頁面。</small>',
-      [],
+        '<small>畫面上方出現「建立帳戶 → 建立資源 → … → 資料收集」5 個階段，就是對的頁面。</small><br>' +
+        '<small>還沒有任何 GA 帳戶的話，畫面上會是 <b>開始評估</b> 按鈕，點它也可以。</small>',
+      [
+        // navid、data-guidedhelpid 不會隨語言改變；選單裡的「帳戶」沒有這類屬性，用選單項目＋文字找
+        gaAdmin(),
+        { selector: 'button[data-guidedhelpid="create-entity-trigger"]', tip: '② 點「建立」' },
+        { selector: '[role="menuitem"]', text: '帳戶', exact: true, tip: '③ 點「帳戶」' },
+        { selector: '[role="menuitem"]', text: 'Account', exact: true, tip: '③ 點「帳戶」' },
+        ...both('開始評估', 'Start measuring', '點這裡建立帳戶'),
+      ],
       { doneWhen: GA_CREATE_PAGE }
     ),
     gaStep(
@@ -615,7 +660,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     gaStep(
       '打開資料串流',
       () => 'GA 左下角 <b>管理</b> → <b>資料收集和修改</b> → <b>資料串流</b>，點你的網站串流。',
-      both('資料串流', 'Data streams', '點這裡')
+      gaStreams()
     ),
     gaStep(
       '複製 Google 代碼',
@@ -655,7 +700,12 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     gaStep(
       '在 GA 打開 Search Console 連結',
       () => '回到 GA，左下角 <b>管理</b> → 往下找到 <b>產品連結</b> → <b>Search Console 連結</b>。',
-      both('Search Console 連結', 'Search Console links', '點這裡')
+      [
+        gaAdmin(),
+        gaAdminMenu('guided-help-admin-product-links-section', '② 展開產品連結'),
+        gaAdminMenu('guided-help-admin-integrations-searchconsole', '③ 點 Search Console 連結'),
+        ...both('Search Console 連結', 'Search Console links', '③ 點 Search Console 連結'),
+      ]
     ),
     gaStep('選擇 GSC 資源', () =>
       '右上角 <b>連結</b> → <b>選擇帳戶</b> → 勾選你網站網址的 GSC 資源 → <b>確認</b> → <b>下一步</b>。'),
@@ -702,24 +752,69 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
       () =>
         'GA 左下角 <b>管理</b> → <b>資料串流</b> → 點第一個串流右邊的箭頭，複製 <b>評估 ID</b>（G- 開頭）。' +
         (state.gaId ? `<br>已記下：${code(state.gaId)} ${copyBtn(state.gaId)}` : ''),
-      both('資料串流', 'Data streams', '點這裡')
+      gaStreams()
+    ),
+    // 把評估 ID 存成變數：一個動作一步（擠在同一步的話，換畫面時好幾個框和提示會同時出現）
+    gtmStep(
+      '打開「變數」頁',
+      () => '點左邊的 <b>變數</b>。<br><small>左邊看不到「變數」：先點 <b>顯示更多</b>。</small>',
+      [
+        ...gtmMore(),
+        { selector: 'a.wd-open-variable-list-button', tip: '② 點變數' },
+        // exact：不要框到對話框裡的「變數名稱」
+        ...both('變數', 'Variables', '② 點變數').map((t) => ({ ...t, exact: true })),
+      ],
+      { doneWhen: onGtmVariables }
     ),
     gtmStep(
-      '把評估 ID 存成常數變數',
+      '新增一個變數',
+      () => '下方 <b>使用者定義的變數</b> 右邊，點 <b>新增</b>。',
+      [{ selector: 'button.wd-create-variable-btn', tip: '點新增' }],
+      { doneWhen: gtmVariableEditorOpen }
+    ),
+    gtmStep(
+      '幫變數取名',
       () =>
-        '1. 左邊 <b>變數</b> → 使用者定義的變數 <b>新增</b><br>' +
-        '2. 左上角名稱改成「GA 評估 ID」<br>' +
-        '3. 點中間選變數類型 → 往下選 <b>常數</b><br>' +
-        '4. 值貼上評估 ID → 右上角 <b>儲存</b>',
-      both('變數', 'Variables', '① 點變數')
+        `點左上角的 <b>未命名變數</b>，改成 ${code('GA 評估 ID')} ${copyBtn('GA 評估 ID')}<br>` +
+        '<small>改好後按面板上的 <b>下一步</b>。</small>',
+      [{ selector: GTM_VARIABLE_NAME, tip: '點這裡改名稱' }]
+    ),
+    gtmStep(
+      '選變數類型「常值」',
+      () =>
+        '1. 點中間的 <b>變數設定</b> 區塊<br>' +
+        '2. 跳出變數類型清單，往下找到 <b>常值</b>（英文介面是 Constant），點它',
+      [
+        { selector: '.gtm-veditor .wd-veditor-section-overlay', tip: '① 點這裡選類型' },
+        { selector: '.wd-picker-table-row', text: '常值', tip: '② 點常值' },
+        { selector: '.wd-picker-table-row', text: 'Constant', tip: '② 點常值' },
+      ],
+      { doneWhen: () => shown(GTM_VALUE_INPUT) }
+    ),
+    gtmStep(
+      '貼上評估 ID，儲存',
+      () =>
+        '1. <b>值</b> 的欄位貼上 GA 評估 ID（G- 開頭）' +
+        (state.gaId ? ` ${code(state.gaId)} ${copyBtn(state.gaId)}` : '') +
+        '<br>2. 按右上角的 <b>儲存</b><br>' +
+        `<small>跳出「重新命名變數」：表示還沒取名，在框裡輸入 ${code('GA 評估 ID')}，再按對話框的 <b>儲存</b>。</small>`,
+      [
+        { selector: GTM_VALUE_INPUT, tip: '① 貼上評估 ID' },
+        { selector: '.gtm-sheet-header button[type="submit"]', tip: '② 按儲存' },
+        // 沒取名就按儲存時才會跳出的對話框（放最後：出現時就是接下來要做的）
+        { selector: 'input.wd-action-dialog-input', tip: '輸入 GA 評估 ID' },
+        { selector: 'button.wd-action-dialog-confirm', tip: '再按儲存' },
+      ],
+      // 編輯頁關掉、回到變數清單 = 存好了
+      { doneWhen: () => onGtmVariables() && !gtmVariableEditorOpen() }
     ),
     gtmStep(
       '新增「網頁瀏覽」代碼',
       () => '左邊 <b>代碼</b> → <b>新增</b> → 代碼設定選 <b>Google Analytics</b> → <b>Google Analytics：GA4 事件</b>。',
-      both('代碼', 'Tags', '① 點代碼')
+      [...both('代碼', 'Tags', '① 點代碼'), ...gtmNew('② 點新增')]
     ),
     gtmStep('設定評估 ID', () =>
-      '點評估 ID 右邊的<b>積木圖示</b>，選剛建立的「GA 評估 ID」常數。<br>' +
+      '點評估 ID 右邊的<b>積木圖示</b>，選剛建立的「GA 評估 ID」變數。<br>' +
       '<small>顯示「找不到 Google 代碼」：點右邊 <b>建立代碼</b>，命名「GA 評估 ID」後儲存。</small>'),
     gtmStep('事件名稱和觸發條件', () =>
       '1. 事件名稱照功能取，例如 <code>GA_網頁瀏覽</code><br>' +
@@ -808,7 +903,11 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
       () =>
         '左下角齒輪 <b>管理</b> → 帳戶的 <b>帳戶存取管理</b> → 右上角 <b>+</b> → 新增使用者，輸入對方的 Email，角色選 <b>管理員</b>。<br>' +
         '<small>要加誰的 Email 請看課堂公告。</small>',
-      both('帳戶存取管理', 'Account access management', '點這裡')
+      [
+        gaAdmin(),
+        gaAdminLink('admin-suiteusermanagement-account', '② 點帳戶存取管理'),
+        ...both('帳戶存取管理', 'Account access management', '② 點帳戶存取管理'),
+      ]
     ),
     gscStep(
       'GSC：新增使用者',

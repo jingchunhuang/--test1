@@ -1,4 +1,4 @@
-// 用截圖做教學：上傳截圖 → background.js 交給 Ollama 看圖模型寫步驟 → 修改 → 存進 chrome.storage 的 customCourses
+// 用截圖做教學：上傳截圖 → background.js 交給 AI（Ollama 或 Gemini）看圖寫步驟 → 修改 → 存進 chrome.storage 的 customCourses
 // 存好的教學由 courses.js 的 Guide.setCustomCourses 換成一般步驟，出現在面板的下拉選單「我的教學」
 const $ = (id) => document.getElementById(id);
 

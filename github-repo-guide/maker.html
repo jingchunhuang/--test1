@@ -53,12 +53,12 @@
 <body>
   <h1>📷 用截圖做教學</h1>
   <p>
-    把操作畫面的截圖（例如課堂簡報的截圖）上傳到這裡，<b>你電腦上的 Ollama 看圖模型</b>會一張一張看，
+    把操作畫面的截圖（例如課堂簡報的截圖）上傳到這裡，<b>設定頁選的 AI</b>（電腦上的 Ollama 或 Gemini API）會一張一張看，
     自動寫出步驟標題、說明和要按的按鈕。改好之後存起來，教學面板的下拉選單就會出現這套教學，
-    在網站上一樣會把按鈕框起來。截圖不會傳到網路上。
+    在網站上一樣會把按鈕框起來。用 Ollama 時截圖不會傳到網路上；用 Gemini 時截圖會傳到 Google。
   </p>
   <p class="hint">
-    需要先安裝看圖模型：在 cmd 執行 <code>ollama pull qwen2.5vl:3b</code>（約 3 GB），並照 README 設定 <code>OLLAMA_ORIGINS</code>。
+    用 Ollama 的話，需要先安裝看圖模型：在 cmd 執行 <code>ollama pull qwen2.5vl:3b</code>（約 3 GB），並照 README 設定 <code>OLLAMA_ORIGINS</code>。
     一張截圖大約要等幾秒到一分鐘。
   </p>
 

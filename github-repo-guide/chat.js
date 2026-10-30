@@ -1,4 +1,4 @@
-// 問問題：先找常見問題（faq.js），找不到再交給電腦上的 AI（Ollama，經過 background.js）
+// 問問題：先找常見問題（faq.js），找不到再交給 AI（設定頁選的 Ollama 或 Gemini，經過 background.js）
 (() => {
   const { el, extensionAlive, state, course, currentStep } = Guide;
 
